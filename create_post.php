@@ -2,20 +2,33 @@
 session_start();
 require 'db.php';
 
-if (!isset($_SESSION['user_id'])) { header("Location: login.php"); exit; }
+// THE BOUNCER: Kick them out if they aren't logged in OR if they aren't an admin
+if (!isset($_SESSION['user_id']) || $_SESSION['role'] !== 'admin') { 
+    header("Location: index.php"); 
+    exit; 
+}
 
 $error = "";
 
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
-    $title = $conn->real_escape_string($_POST['title']);
-    $content = $conn->real_escape_string($_POST['content']);
+    // SERVER-SIDE VALIDATION
+    $title = trim($_POST['title']);
+    $content = trim($_POST['content']);
 
-    $sql = "INSERT INTO posts (title, content) VALUES ('$title', '$content')";
-    if ($conn->query($sql) === TRUE) {
-        header("Location: index.php");
-        exit;
+    if (empty($title) || empty($content)) {
+        $error = "Title and Content cannot be empty.";
     } else {
-        $error = "Error: " . $conn->error;
+        // PREPARED STATEMENT: Secure the database insertion
+        $stmt = $conn->prepare("INSERT INTO posts (title, content) VALUES (?, ?)");
+        $stmt->bind_param("ss", $title, $content); // 'ss' = two strings
+
+        if ($stmt->execute()) {
+            header("Location: index.php");
+            exit;
+        } else {
+            $error = "Error saving post.";
+        }
+        $stmt->close();
     }
 }
 ?>
@@ -32,11 +45,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             <div class="card shadow-sm">
                 <div class="card-body">
                     <h2 class="card-title mb-4">Create a New Post</h2>
-                    
-                    <?php if ($error): ?>
-                        <div class="alert alert-danger"><?php echo $error; ?></div>
-                    <?php endif; ?>
-
+                    <?php if ($error) echo "<div class='alert alert-danger'>$error</div>"; ?>
                     <form method="POST">
                         <div class="mb-3">
                             <label class="form-label fw-bold">Title</label>

@@ -1,50 +1,49 @@
 <?php
 session_start();
 require 'db.php';
-
 if (!isset($_SESSION['user_id'])) { header("Location: login.php"); exit; }
 
-// --- 1. SEARCH & PAGINATION SETUP ---
-$limit = 3; // We will show 3 posts per page
+$limit = 3; 
 $page = isset($_GET['page']) ? (int)$_GET['page'] : 1;
-$offset = ($page - 1) * $limit; // Calculate where to start pulling posts
+$offset = ($page - 1) * $limit; 
 
-// Get the search word if the user typed one
-$search = isset($_GET['search']) ? $_GET['search'] : '';
-$safe_search = $conn->real_escape_string($search);
+$search = isset($_GET['search']) ? trim($_GET['search']) : '';
+$search_param = "%" . $search . "%"; // Add wildcards for the secure prepared statement
 
-// --- 2. COUNT TOTAL POSTS (To figure out how many pages we need) ---
-$count_sql = "SELECT COUNT(*) as total FROM posts WHERE title LIKE '%$safe_search%' OR content LIKE '%$safe_search%'";
-$count_result = $conn->query($count_sql);
-$total_rows = $count_result->fetch_assoc()['total'];
-$total_pages = ceil($total_rows / $limit); // Round up (e.g., 7 posts / 3 = 2.33 = 3 pages)
+// --- PREPARED STATEMENT FOR COUNTING POSTS ---
+$count_stmt = $conn->prepare("SELECT COUNT(*) as total FROM posts WHERE title LIKE ? OR content LIKE ?");
+$count_stmt->bind_param("ss", $search_param, $search_param);
+$count_stmt->execute();
+$total_rows = $count_stmt->get_result()->fetch_assoc()['total'];
+$total_pages = ceil($total_rows / $limit);
 
-// --- 3. FETCH THE ACTUAL POSTS ---
-$sql = "SELECT * FROM posts WHERE title LIKE '%$safe_search%' OR content LIKE '%$safe_search%' ORDER BY created_at DESC LIMIT $limit OFFSET $offset";
-$result = $conn->query($sql);
+// --- PREPARED STATEMENT FOR FETCHING POSTS ---
+$stmt = $conn->prepare("SELECT * FROM posts WHERE title LIKE ? OR content LIKE ? ORDER BY created_at DESC LIMIT ? OFFSET ?");
+$stmt->bind_param("ssii", $search_param, $search_param, $limit, $offset); // 'ssii' = string, string, integer, integer
+$stmt->execute();
+$result = $stmt->get_result();
 ?>
 
 <!DOCTYPE html>
 <html>
 <head>
-    <title>My Supercharged Blog</title>
-    <!-- Bring in Bootstrap for beautiful UI styling -->
+    <title>My Secure Blog</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
 </head>
 <body class="bg-light">
-
 <div class="container mt-5">
     
-    <!-- Header Section -->
     <div class="d-flex justify-content-between align-items-center mb-4">
-        <h2>Welcome, <?php echo htmlspecialchars($_SESSION['username']); ?>!</h2>
+        <h2>Welcome, <?php echo htmlspecialchars($_SESSION['username']); ?>! <span class="badge bg-secondary"><?php echo htmlspecialchars($_SESSION['role']); ?></span></h2>
         <div>
-            <a href="create_post.php" class="btn btn-success">Write a New Post</a>
+            <!-- ROLE CHECK: Only Admins can see the Write Post button -->
+            <?php if ($_SESSION['role'] === 'admin'): ?>
+                <a href="create_post.php" class="btn btn-success">Write a New Post</a>
+            <?php endif; ?>
             <a href="logout.php" class="btn btn-danger">Logout</a>
         </div>
     </div>
 
-    <!-- Search Form Section -->
     <form method="GET" class="mb-4">
         <div class="input-group shadow-sm">
             <input type="text" name="search" class="form-control" placeholder="Search posts..." value="<?php echo htmlspecialchars($search); ?>">
@@ -53,7 +52,6 @@ $result = $conn->query($sql);
         </div>
     </form>
 
-    <!-- Blog Posts Section -->
     <?php if ($result->num_rows > 0): ?>
         <?php while($post = $result->fetch_assoc()): ?>
             <div class="card mb-3 shadow-sm">
@@ -61,29 +59,29 @@ $result = $conn->query($sql);
                     <h4 class="card-title text-primary"><?php echo htmlspecialchars($post['title']); ?></h4>
                     <p class="card-text"><?php echo htmlspecialchars($post['content']); ?></p>
                     <p class="text-muted small">Posted on: <?php echo $post['created_at']; ?></p>
-                    <a href="edit_post.php?id=<?php echo $post['id']; ?>" class="btn btn-sm btn-outline-primary">Edit</a>
-                    <a href="delete_post.php?id=<?php echo $post['id']; ?>" class="btn btn-sm btn-outline-danger" onclick="return confirm('Are you sure you want to delete this?');">Delete</a>
+                    
+                    <!-- ROLE CHECK: Only Admins can see the Edit/Delete buttons -->
+                    <?php if ($_SESSION['role'] === 'admin'): ?>
+                        <a href="edit_post.php?id=<?php echo $post['id']; ?>" class="btn btn-sm btn-outline-primary">Edit</a>
+                        <a href="delete_post.php?id=<?php echo $post['id']; ?>" class="btn btn-sm btn-outline-danger" onclick="return confirm('Delete this?');">Delete</a>
+                    <?php endif; ?>
                 </div>
             </div>
         <?php endwhile; ?>
     <?php else: ?>
-        <div class="alert alert-warning">No posts found. Try a different search!</div>
+        <div class="alert alert-warning">No posts found.</div>
     <?php endif; ?>
 
-    <!-- Pagination Section (Page Numbers at the bottom) -->
+    <!-- Pagination -->
     <?php if ($total_pages > 1): ?>
-        <nav>
-            <ul class="pagination justify-content-center mt-4">
-                <?php for ($i = 1; $i <= $total_pages; $i++): ?>
-                    <li class="page-item <?php if ($i == $page) echo 'active'; ?>">
-                        <a class="page-link" href="?page=<?php echo $i; ?>&search=<?php echo urlencode($search); ?>"><?php echo $i; ?></a>
-                    </li>
-                <?php endfor; ?>
-            </ul>
-        </nav>
+        <nav><ul class="pagination justify-content-center mt-4">
+            <?php for ($i = 1; $i <= $total_pages; $i++): ?>
+                <li class="page-item <?php if ($i == $page) echo 'active'; ?>">
+                    <a class="page-link" href="?page=<?php echo $i; ?>&search=<?php echo urlencode($search); ?>"><?php echo $i; ?></a>
+                </li>
+            <?php endfor; ?>
+        </ul></nav>
     <?php endif; ?>
-
 </div>
-
 </body>
 </html>

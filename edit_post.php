@@ -1,26 +1,53 @@
 <?php
 session_start();
 require 'db.php';
-if (!isset($_SESSION['user_id'])) { header("Location: login.php"); exit; }
 
-$id = $_GET['id'];
+// THE BOUNCER: Admins only
+if (!isset($_SESSION['user_id']) || $_SESSION['role'] !== 'admin') { 
+    header("Location: index.php"); 
+    exit; 
+}
+
+// Check if ID is a valid number
+if (!isset($_GET['id']) || !is_numeric($_GET['id'])) {
+    header("Location: index.php");
+    exit;
+}
+
+$id = (int)$_GET['id'];
 $error = "";
 
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
-    $title = $conn->real_escape_string($_POST['title']);
-    $content = $conn->real_escape_string($_POST['content']);
+    $title = trim($_POST['title']);
+    $content = trim($_POST['content']);
 
-    $sql = "UPDATE posts SET title='$title', content='$content' WHERE id=$id";
-    if ($conn->query($sql) === TRUE) {
-        header("Location: index.php");
-        exit;
+    if (empty($title) || empty($content)) {
+        $error = "Title and Content cannot be empty.";
     } else {
-        $error = "Error updating record: " . $conn->error;
+        // PREPARED STATEMENT: Secure the Update
+        $stmt = $conn->prepare("UPDATE posts SET title=?, content=? WHERE id=?");
+        $stmt->bind_param("ssi", $title, $content, $id); // 'ssi' = string, string, integer
+
+        if ($stmt->execute()) {
+            header("Location: index.php");
+            exit;
+        } else {
+            $error = "Error updating post.";
+        }
+        $stmt->close();
     }
 }
 
-$result = $conn->query("SELECT * FROM posts WHERE id=$id");
+// PREPARED STATEMENT: Secure the Select
+$stmt = $conn->prepare("SELECT * FROM posts WHERE id=?");
+$stmt->bind_param("i", $id); // 'i' = integer
+$stmt->execute();
+$result = $stmt->get_result();
 $post = $result->fetch_assoc();
+$stmt->close();
+
+// If the post doesn't exist, send them away
+if (!$post) { header("Location: index.php"); exit; }
 ?>
 <!DOCTYPE html>
 <html>
@@ -35,11 +62,7 @@ $post = $result->fetch_assoc();
             <div class="card shadow-sm">
                 <div class="card-body">
                     <h2 class="card-title mb-4">Edit Post</h2>
-                    
-                    <?php if ($error): ?>
-                        <div class="alert alert-danger"><?php echo $error; ?></div>
-                    <?php endif; ?>
-
+                    <?php if ($error) echo "<div class='alert alert-danger'>$error</div>"; ?>
                     <form method="POST">
                         <div class="mb-3">
                             <label class="form-label fw-bold">Title</label>

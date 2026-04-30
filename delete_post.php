@@ -1,14 +1,25 @@
 <?php
 session_start();
 require 'db.php';
-if (!isset($_SESSION['user_id'])) { header("Location: login.php"); exit; }
 
-// Grab the ID from the web address
-$id = $_GET['id'];
+// THE BOUNCER: Admins only
+if (!isset($_SESSION['user_id']) || $_SESSION['role'] !== 'admin') { 
+    header("Location: index.php"); 
+    exit; 
+}
 
-// Tell the database to delete this specific post
-$conn->query("DELETE FROM posts WHERE id=$id");
+// Check if ID exists and is a valid number
+if (isset($_GET['id']) && is_numeric($_GET['id'])) {
+    $id = (int)$_GET['id'];
 
-// Immediately send the user back to the homepage
+    // PREPARED STATEMENT: Secure the Delete
+    $stmt = $conn->prepare("DELETE FROM posts WHERE id=?");
+    $stmt->bind_param("i", $id); // 'i' = integer
+    $stmt->execute();
+    $stmt->close();
+}
+
+// Send the user back to the homepage
 header("Location: index.php");
+exit;
 ?>
